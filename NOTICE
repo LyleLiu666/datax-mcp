@@ -1,0 +1,10 @@
+DataX MCP
+Copyright 2026 DataX MCP contributors
+
+This independent controller launches Alibaba DataX as a separately installed
+runtime. DataX is licensed under Apache License 2.0. Its source and binaries are
+not bundled here. Runtime builds retain upstream LICENSE/NOTICE information.
+
+DataX: https://github.com/alibaba/DataX
+MCP Go SDK: https://github.com/modelcontextprotocol/go-sdk
+Go dependencies and their licenses are identified through go.mod/go.sum.

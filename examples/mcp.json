@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "datax": {
+      "command": "/absolute/path/to/datax-mcp/bin/datax-mcp",
+      "args": ["serve", "--state", "/absolute/private/path/datax-state"],
+      "env": {"DATAX_HOME": "/absolute/path/to/datax-mcp/.cache/datax"}
+    }
+  }
+}

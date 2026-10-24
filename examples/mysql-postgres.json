@@ -1,0 +1,22 @@
+{
+  "name": "sample-items",
+  "description": "Approved source projection; preserves bytes and textual precision",
+  "reader": {
+    "name": "mysqlreader",
+    "parameter": {
+      "username": "${SOURCE_USER}",
+      "password": "${SOURCE_PASSWORD}",
+      "session": ["SET SESSION MAX_EXECUTION_TIME=5000"],
+      "connection": [{
+        "jdbcUrl": ["${SOURCE_JDBC_URL}"],
+        "querySql": ["SELECT id,body,label,CAST(created_at AS CHAR),CAST(amount AS CHAR) FROM source_items WHERE id > {{lower}} AND id <= {{upper}} ORDER BY id"]
+      }]
+    }
+  },
+  "target_table": "public.research_items",
+  "target_dsn_env": "TARGET_PG_DSN",
+  "key": "id",
+  "columns": ["id", "body", "label", "created_at", "amount"],
+  "chunk_size": 10000,
+  "timeout_seconds": 120
+}
