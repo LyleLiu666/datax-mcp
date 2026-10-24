@@ -15,6 +15,14 @@ func TestGeneratedJobIsBoundedAndDoesNotWriteFinalTable(t *testing.T) {
 	}
 	var root map[string]any
 	json.Unmarshal(raw, &root)
+	core, ok := root["core"].(map[string]any)
+	if !ok {
+		t.Fatal("missing bounded runtime settings")
+	}
+	container, ok := core["container"].(map[string]any)
+	if !ok || container["job"].(map[string]any)["sleepInterval"] != float64(1000) {
+		t.Fatal("small partitions should not wait ten seconds for completion detection")
+	}
 	job := root["job"].(map[string]any)
 	setting := job["setting"].(map[string]any)
 	if setting["errorLimit"].(map[string]any)["record"] != float64(0) {

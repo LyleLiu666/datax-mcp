@@ -57,7 +57,7 @@ func Job(p profile.Profile, reader json.RawMessage, stage, dsn string) ([]byte, 
 		"username": c.User, "password": c.Password, "column": p.Columns, "batchSize": 500, "batchByteSize": 1048576, "emptyAsNull": false,
 		"connection": []any{map[string]any{"jdbcUrl": "jdbc:" + u.String(), "table": []string{stage}}},
 	}}
-	root := map[string]any{"core": map[string]any{"transport": map[string]any{"channel": map[string]any{"speed": map[string]any{"byte": 1048576, "record": -1}}}}, "job": map[string]any{
+	root := map[string]any{"core": map[string]any{"container": map[string]any{"job": map[string]any{"sleepInterval": 1000}}, "transport": map[string]any{"channel": map[string]any{"speed": map[string]any{"byte": 1048576, "record": -1}}}}, "job": map[string]any{
 		"setting": map[string]any{"speed": map[string]any{"channel": 1, "byte": 1048576}, "errorLimit": map[string]any{"record": 0, "percentage": 0}},
 		"content": []any{map[string]any{"reader": reader, "writer": writer}},
 	}}

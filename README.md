@@ -56,7 +56,15 @@ Adapt [examples/mcp.json](examples/mcp.json) to absolute paths. Point the client
 
 Start with a small full range and inspect the resulting data. Supply a fixed `upper` observed in the source; `full` also accepts an exclusive `lower` (default 0). An incremental run starts at the last completed run's upper bound. Profiles are immutable; changed mappings require a new name. MCP registration is a privileged operator interface, not an SQL sandbox.
 
-The CLI calls the same control logic:
+Supervised applications can also invoke the actual MCP protocol through the bundled client:
+
+```sh
+printf '%s' '{}' | ./bin/datax-mcp call --tool sync_capabilities
+```
+
+`call` starts a stdio MCP session using the official SDK, reads JSON arguments from stdin, and prints the MCP result envelope. It does not shortcut through the CLI state methods. Integer cursors are decoded directly as int64 to avoid floating-point rounding in default application.
+
+The administrative CLI calls the same control logic:
 
 ```sh
 ./bin/datax-mcp register --file examples/mysql-postgres.json

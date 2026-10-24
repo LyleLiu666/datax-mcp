@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -31,14 +32,14 @@ func main() {
 }
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: datax-mcp <serve|worker|register|start|status|pause|resume|doctor|version> [flags]")
+		return errors.New("usage: datax-mcp <serve|worker|call|register|start|status|pause|resume|doctor|version> [flags]")
 	}
 	command := args[0]
 	if command == "version" {
 		return json.NewEncoder(out).Encode(map[string]string{"version": mcpserver.Version})
 	}
 	switch command {
-	case "serve", "worker", "register", "start", "status", "pause", "resume", "doctor":
+	case "call", "serve", "worker", "register", "start", "status", "pause", "resume", "doctor":
 	default:
 		return errors.New("unknown command")
 	}
@@ -59,6 +60,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	lower := flags.Int64("lower", 0, "exclusive lower ID")
 	upper := flags.Int64("upper", 0, "inclusive upper ID")
 	id := flags.String("run", "", "logical run ID")
+	tool := flags.String("tool", "", "MCP tool name; call reads JSON arguments from stdin")
 	if err := flags.Parse(args[1:]); err != nil {
 		return errors.New("invalid flags; see README for command examples")
 	}
@@ -71,6 +73,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return e
 		}
 		*runtime = p
+	}
+	if command == "call" {
+		return callTool(ctx, *dir, *runtime, *tool, os.Stdin, out)
 	}
 	s, err := state.Open(*dir)
 	if err != nil {
@@ -129,6 +134,40 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		v, e := s.GetRun(*id)
 		return emit(v, e)
+	}
+	return nil
+}
+
+// callTool is a protocol client, not a shortcut into state methods. It lets
+// supervised applications use the same MCP interface as interactive clients.
+func callTool(ctx context.Context, dir, home, tool string, in io.Reader, out io.Writer) error {
+	if tool == "" {
+		return errors.New("--tool is required")
+	}
+	raw, err := io.ReadAll(io.LimitReader(in, 1048577))
+	if err != nil || len(raw) > 1048576 || !json.Valid(raw) {
+		return errors.New("stdin must contain JSON arguments under 1 MiB")
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		return errors.New("cannot locate MCP executable")
+	}
+	command := exec.CommandContext(ctx, binary, "serve", "--state", dir, "--datax-home", home)
+	client := mcp.NewClient(&mcp.Implementation{Name: "datax-mcp-call", Version: mcpserver.Version}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
+	if err != nil {
+		return errors.New("MCP connection failed")
+	}
+	defer session.Close()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: json.RawMessage(raw)})
+	if err != nil {
+		return errors.New("MCP tool call failed")
+	}
+	if err = json.NewEncoder(out).Encode(result); err != nil {
+		return err
+	}
+	if result.IsError {
+		return errors.New("MCP tool returned an error")
 	}
 	return nil
 }

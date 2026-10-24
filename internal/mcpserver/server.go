@@ -2,6 +2,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,7 @@ const Version = "0.1.0"
 
 type Empty struct{}
 type RegisterInput struct {
-	Profile map[string]any `json:"profile" jsonschema:"Approved profile with native reader, target table, environment reference, key, columns, and chunk_size; never include literal credentials"`
+	Profile json.RawMessage `json:"profile" jsonschema:"Approved profile with native reader, target table, environment reference, key, columns, and chunk_size; never include literal credentials"`
 }
 type StartInput struct {
 	Profile string `json:"profile"`
@@ -54,24 +55,24 @@ type Capabilities struct {
 
 func New(s *state.Store, home string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "datax-mcp", Version: Version}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_capabilities", Description: "Inspect runtime readiness, worker availability, supported transfers, and correctness boundaries."}, func(ctx context.Context, r *mcp.CallToolRequest, in Empty) (*mcp.CallToolResult, Capabilities, error) {
+	addExactTool(server, &mcp.Tool{Name: "sync_capabilities", Description: "Inspect runtime readiness, worker availability, supported transfers, and correctness boundaries."}, func(ctx context.Context, r *mcp.CallToolRequest, in Empty) (*mcp.CallToolResult, Capabilities, error) {
 		return nil, Capabilities{Version: Version, Readers: []string{"mysqlreader", "streamreader (synthetic fixtures)"}, Writer: "postgresqlwriter with transactional staged publication", WorkerRunning: worker.Alive(s.Dir), RuntimeReady: (datax.Runner{Home: home}).Check() == nil, ResumeBoundary: "last verified and committed ID-range partition", Incremental: "append by integer ID high-water mark; explicit full reruns can refresh old rows", Limitations: []string{"not CDC", "no automatic source-delete propagation", "no cluster scheduler; one independent worker per state directory", "source field fidelity requires a verified reader projection; timestamp precision needs explicit transport mapping"}}, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_register", Description: "Register an immutable, operator-approved transfer profile. Credentials are environment references resolved only by the worker."}, func(ctx context.Context, r *mcp.CallToolRequest, in RegisterInput) (*mcp.CallToolResult, Registered, error) {
-		raw, e := json.Marshal(in.Profile)
-		if e != nil || len(raw) > 1024*1024 {
+	addExactTool(server, &mcp.Tool{Name: "sync_register", Description: "Register an immutable, operator-approved transfer profile. Credentials are environment references resolved only by the worker.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"profile": map[string]any{"type": "object"}}, "required": []string{"profile"}, "additionalProperties": false}}, func(ctx context.Context, r *mcp.CallToolRequest, in RegisterInput) (*mcp.CallToolResult, Registered, error) {
+		raw := in.Profile
+		if !json.Valid(raw) || len(raw) > 1024*1024 {
 			return nil, Registered{}, errors.New("invalid profile payload")
 		}
 		var p profile.Profile
-		if e = json.Unmarshal(raw, &p); e != nil {
+		if e := json.Unmarshal(raw, &p); e != nil {
 			return nil, Registered{}, errors.New("invalid profile schema")
 		}
-		if e = s.PutProfile(p); e != nil {
+		if e := s.PutProfile(p); e != nil {
 			return nil, Registered{}, e
 		}
 		return nil, Registered{Name: p.Name}, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_profiles", Description: "List registered transfer profiles; only environment references, never resolved credentials."}, func(ctx context.Context, r *mcp.CallToolRequest, in Empty) (*mcp.CallToolResult, ProfilesOutput, error) {
+	addExactTool(server, &mcp.Tool{Name: "sync_profiles", Description: "List registered transfer profiles; only environment references, never resolved credentials."}, func(ctx context.Context, r *mcp.CallToolRequest, in Empty) (*mcp.CallToolResult, ProfilesOutput, error) {
 		p, e := s.Profiles()
 		out := ProfilesOutput{Profiles: []map[string]any{}}
 		if e != nil {
@@ -83,18 +84,20 @@ func New(s *state.Store, home string) *mcp.Server {
 				return nil, out, err
 			}
 			var value map[string]any
-			if err = json.Unmarshal(raw, &value); err != nil {
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			decoder.UseNumber()
+			if err = decoder.Decode(&value); err != nil {
 				return nil, out, err
 			}
 			out.Profiles = append(out.Profiles, value)
 		}
 		return nil, out, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_start", Description: "Queue a bounded full or incremental run and return immediately. The separate worker continues after this MCP client disconnects."}, func(ctx context.Context, r *mcp.CallToolRequest, in StartInput) (*mcp.CallToolResult, state.Run, error) {
+	addExactTool(server, &mcp.Tool{Name: "sync_start", Description: "Queue a bounded full or incremental run and return immediately. The separate worker continues after this MCP client disconnects."}, func(ctx context.Context, r *mcp.CallToolRequest, in StartInput) (*mcp.CallToolResult, state.Run, error) {
 		out, e := s.Start(in.Profile, in.Mode, in.Lower, in.Upper)
 		return nil, out, e
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_status", Description: "Read progress and verification counts for a run, or list the latest 50 runs. Does not expose raw rows or DataX logs."}, func(ctx context.Context, r *mcp.CallToolRequest, in StatusInput) (*mcp.CallToolResult, RunsOutput, error) {
+	addExactTool(server, &mcp.Tool{Name: "sync_status", Description: "Read progress and verification counts for a run, or list the latest 50 runs. Does not expose raw rows or DataX logs."}, func(ctx context.Context, r *mcp.CallToolRequest, in StatusInput) (*mcp.CallToolResult, RunsOutput, error) {
 		out := RunsOutput{WorkerRunning: worker.Alive(s.Dir)}
 		var e error
 		if in.RunID == "" {
@@ -106,14 +109,14 @@ func New(s *state.Store, home string) *mcp.Server {
 		}
 		return nil, out, e
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_pause", Description: "Pause at a partition boundary. An already-running partition is allowed to finish and commit; completed data is preserved."}, func(ctx context.Context, r *mcp.CallToolRequest, in RunInput) (*mcp.CallToolResult, state.Run, error) {
+	addExactTool(server, &mcp.Tool{Name: "sync_pause", Description: "Pause at a partition boundary. An already-running partition is allowed to finish and commit; completed data is preserved."}, func(ctx context.Context, r *mcp.CallToolRequest, in RunInput) (*mcp.CallToolResult, state.Run, error) {
 		if e := s.Pause(in.RunID); e != nil {
 			return nil, state.Run{}, e
 		}
 		out, e := s.GetRun(in.RunID)
 		return nil, out, e
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "sync_resume", Description: "Resume a paused or failed run. Completed partitions are not re-read; a destination receipt resolves a crash after commit."}, func(ctx context.Context, r *mcp.CallToolRequest, in RunInput) (*mcp.CallToolResult, state.Run, error) {
+	addExactTool(server, &mcp.Tool{Name: "sync_resume", Description: "Resume a paused or failed run. Completed partitions are not re-read; a destination receipt resolves a crash after commit."}, func(ctx context.Context, r *mcp.CallToolRequest, in RunInput) (*mcp.CallToolResult, state.Run, error) {
 		if e := s.Resume(in.RunID); e != nil {
 			return nil, state.Run{}, e
 		}

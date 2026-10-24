@@ -34,6 +34,12 @@ func TestStdioDisconnectDoesNotLoseQueuedRun(t *testing.T) {
 		t.Fatalf("build: %s %v", b, e)
 	}
 	dir := t.TempDir()
+	bridge := exec.CommandContext(ctx, binary, "call", "--state", dir, "--tool", "sync_capabilities")
+	bridge.Stdin = strings.NewReader(`{}`)
+	if b, e := bridge.CombinedOutput(); e != nil || !bytes.Contains(b, []byte(`"structuredContent"`)) {
+		t.Fatalf("MCP bridge: %s %v", b, e)
+	}
+
 	command := exec.CommandContext(ctx, binary, "serve", "--state", dir)
 	command.Stderr = os.Stderr
 	client := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil)
