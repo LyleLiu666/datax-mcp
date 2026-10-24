@@ -72,8 +72,15 @@ func TestRangePartitionHasNoOverlapAndHandlesLastShortChunk(t *testing.T) {
 	}
 }
 func TestMissingEnvironmentReportsNameOnly(t *testing.T) {
-	_, err := Render(exampleProfile().Reader, Bounds{0, 10}, func(string) (string, bool) { return "", false })
-	if err == nil || !strings.Contains(err.Error(), "MYSQL_USER") {
+	// Only one variable is missing. Map traversal order must not decide which
+	// error this test expects when multiple variables are absent.
+	_, err := Render(exampleProfile().Reader, Bounds{0, 10}, func(key string) (string, bool) {
+		if key == "MYSQL_USER" {
+			return "synthetic-user", true
+		}
+		return "must-not-appear-in-diagnostics", false
+	})
+	if err == nil || err.Error() != "missing environment variable MYSQL_PASSWORD" {
 		t.Fatal(err)
 	}
 }
